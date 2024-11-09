@@ -1,0 +1,139 @@
+#  Source for generic VME readout using a
+#  TJNAF trigger supervisor interface register (TIR)
+#  as a source for external interrupts
+#
+#    David Abbott, TJNAF 1996
+
+readout list VME1
+maximum 9216,500
+vme readout
+polling
+
+
+
+const TIR_ADDR = 0x0ed0
+const ADC_ID = 0
+const MAX_ADC_DATA = 34
+
+unsigned long laddr;
+extern int bigendian_out;
+
+
+begin download
+
+  variable res
+
+# If the ROC is sending data to Little-Endian EB
+# e.g. a x86 Linux CPU then bigendian_out = 0.
+# Unless the ROC is also running on a Little-Endian
+# machine. Then set bigendian_out=1.
+  bigendian_out = 1;
+
+
+# Setup TIR
+  tirInit(TIR_ADDR);
+
+# Initialize V792 library and Modules (this should be done at boot time)
+#  c792Init(0xaa0000,0,1,0);
+
+  
+  log inform "User Download Executed"
+
+end download
+    
+begin prestart
+
+  log inform "Entering User Prestart"
+
+  init trig source VME
+  link sync trig source VME 1 to usrtrig and usrtrig_done
+  event type 1 then read VME 1
+
+# Assume ADCs have been Initialized at boot in c792Init() call
+# Setup ADCs (no sparcification)
+  c792Sparse(ADC_ID,0,0);
+  c792Clear(ADC_ID);
+    
+  c792Status(ADC_ID,0,0);
+  
+  log inform "User Prestart Executed"
+
+end prestart
+
+begin end
+
+  CDODISABLE(VME,1,0);
+
+#ADC Event status - Is all data read out
+  c792Status(ADC_ID,0,0);
+
+  log inform "User End Executed"
+
+end end
+
+begin pause
+
+  CDODISABLE(VME,1,0);
+
+  log inform "User Pause Executed"
+
+end pause
+
+begin go
+
+  log inform "Entering User Go"
+  
+  CDOENABLE(VME,1,0);
+
+end go
+
+
+begin trigger usrtrig
+
+ variable stat, csr
+
+ rol->dabufp = (long *) 0;
+ open event type EVTYPE of BT_UI4
+
+%%
+ int nwrds=0;
+ /* Check if an Event is available */
+ stat = c792Dready(ADC_ID);
+ if(stat > 0) {
+   nwrds = c792ReadEvent(ADC_ID,rol->dabufp);
+   if(nwrds<=0) {
+      logMsg("ERROR: ADC Read Failed - Status 0x%x\n",nwrds,0,0,0,0,0);
+      *rol->dabufp++ = 0xda000bad;
+      c792Clear(ADC_ID);
+   } else {
+      rol->dabufp += nwrds;
+   }
+ }else{
+   logMsg("ERROR: NO data in ADC  datascan = 0x%x\n",stat,0,0,0,0,0);
+   c792Clear(ADC_ID);
+ }
+
+%%
+
+ close event
+
+end trigger
+
+begin done usrtrig
+
+
+end done
+
+
+begin done
+
+# Acknowledge tir register
+  CDOACK(VME,1,0);
+
+end done
+
+begin status
+
+end status
+
+

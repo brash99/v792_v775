@@ -1,0 +1,79 @@
+#
+# File:
+#    Makefile
+#
+# Description:
+#    Makefile for the coda primary and secondary readout lists 
+#    running on a Linux controller
+#
+# SVN: $Rev: 402 $
+#
+# Uncomment DEBUG line for debugging info ( -g and -Wall )
+#export DEBUG=1
+#
+
+# Plug in your primary readout lists here..
+VMEROL			= c792_linux_list.so event_list.so
+# Add shared library dependencies here.  (vme, tir, jvme are already included)
+ROLLIBS			= -lc792 -lc775
+
+ifndef LINUXVME_LIB
+	LINUXVME_LIB	= ${CODA}/linuxvme/lib
+endif
+ifndef LINUXVME_INC
+	LINUXVME_INC	= ${CODA}/linuxvme/include
+endif
+
+# DEFs for compiling primary readout lists
+CC			= gcc
+AR                      = ar
+RANLIB                  = ranlib
+CFLAGS			= -I${LINUXVME_INC} -I. -I/usr/include -I${CODA}/common/include\
+			  -L${LINUXVME_LIB} -L. -DJLAB
+CFLAGS			+= -ljvme -ltir $(ROLLIBS)
+CFLAGS			+= -DLINUX -DDAYTIME=\""`date`"\"
+
+ifdef DEBUG
+CFLAGS			+= -Wall -g
+endif
+
+# DEFs for compiling CODA readout lists
+CCRL			= ${CODA_BIN}/ccrl
+CODA_INCS		= -I.  -I${LINUXVME_INC} -I${CODA}/common/include
+CODA_LIBDIRS            = -L. -L${LINUXVME_LIB}
+CODA_LIBS		= -ljvme -ltir 
+CODA_DEFS		= -DLINUX -DDAYTIME=\""`date`"\"
+CODA_CFLAGS		= -fpic -shared ${CODA_INCS} ${CODA_LIBDIRS} \
+			  ${CODA_LIBS} ${CODA_DEFS}
+ifdef DEBUG
+CODA_CFLAGS		+= -Wall -g
+endif
+#CRLFILES		= $(wildcard *.crl)
+CRLFILES		= event_list.crl
+CFILES			= $(CRLFILES:.crl=.c)
+SOBJS			= $(CRLFILES:.crl=.so)
+
+
+all: $(VMEROL) $(SOBJS) 
+
+event_list.c: event_list.crl Makefile-rol
+	@echo
+	@echo "Converting $< to $@"
+	@${CCRL} $<
+
+event_list.so: event_list.c
+	@echo
+	@echo "Building $@ from $<"
+	@echo
+	${CC} ${CODA_CFLAGS} -o $@ $<
+
+%.so: %.c Makefile-rol
+	@echo
+	@echo "Building $@ from $<"
+	@echo
+	$(CC) -fpic -shared  $(CFLAGS) -DINIT_NAME=$(@:.so=__init) -DINIT_NAME_POLL=$(@:.so=__poll) -o $@ $<
+
+clean distclean:
+	@rm -f  $(VMEROL) $(SOBJS) $(CFILES) *~ 
+
+.PHONY: all
